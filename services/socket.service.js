@@ -8,8 +8,10 @@ export function setupSocketAPI(server) {
     })
     gIo.on('connection', socket => {
         console.log(`New connected socket [id: ${socket.id}]`)
-        socket.on('disconnect', socket => {
+        socket.on('disconnect', () => {
             console.log(`Socket disconnected [id: ${socket.id}]`)
+            gParticipantsBySocket.delete(socket.id)
+            _emitParticipants()
         })
         socket.on('admin-set-song', song => {
             socket.broadcast.emit('admin-choose-song', song)
@@ -18,17 +20,35 @@ export function setupSocketAPI(server) {
             socket.broadcast.emit('admin-pick-new-song', song)
         })
 
-        socket.on('set-user-socket', userId => {
-            console.log(`Setting socket.userId = ${userId} for socket [id: ${socket.id}]`)
-            socket.userId = userId
+        socket.on('set-user-socket', user => {
+            console.log(`Setting user for socket [id: ${socket.id}]`)
+            socket.userId = user?._id || user
+            gParticipantsBySocket.set(socket.id, user)
+            _emitParticipants()
         })
 
         socket.on('unset-user-socket', () => {
-            console.log(`Removing socket.userId for socket [id: ${socket.id}]`)
+            console.log(`Removing user for socket [id: ${socket.id}]`)
             delete socket.userId
+            gParticipantsBySocket.delete(socket.id)
+            _emitParticipants()
         })
 
     })
+}
+
+// Tracks the live roster (socket.id -> user) so we can broadcast who's in the room.
+const gParticipantsBySocket = new Map()
+
+function _emitParticipants() {
+    const seen = new Set()
+    const participants = []
+    for (const user of gParticipantsBySocket.values()) {
+        if (!user || !user._id || seen.has(user._id)) continue
+        seen.add(user._id)
+        participants.push(user)
+    }
+    gIo.emit('participants-updated', participants)
 }
 
 async function broadcast({ type, data, room = null, userId }) {
